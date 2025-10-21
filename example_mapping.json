@@ -1,0 +1,34 @@
+{
+  "Detection": [
+    "radar",
+    "lidar",
+    "sonar",
+    "infrared",
+    "thermal",
+    "camera"
+  ],
+  "AI/Fusion": [
+    "fusion",
+    "sensor fusion",
+    "neural",
+    "machine learning",
+    "ml",
+    "deep learning",
+    "model"
+  ],
+  "Swarm": [
+    "swarm",
+    "multi-agent",
+    "cooperative",
+    "formation",
+    "distributed"
+  ],
+  "Remediation": [
+    "neutralize",
+    "detonate",
+    "disarm",
+    "remediation",
+    "clearance",
+    "excavation"
+  ]
+}

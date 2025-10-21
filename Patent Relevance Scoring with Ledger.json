@@ -1,0 +1,650 @@
+{
+  "name": "Patent Relevance Scoring with Ledger",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "72a46995-497b-41ec-a580-ea726ecddfa1",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -5488,
+        960
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "search",
+        "base": {
+          "__rl": true,
+          "value": "appDoLT6uH1FnzceO",
+          "mode": "list",
+          "cachedResultName": "Patents",
+          "cachedResultUrl": "https://airtable.com/appDoLT6uH1FnzceO"
+        },
+        "table": {
+          "__rl": true,
+          "value": "tblEbqMVyhk95H1tT",
+          "mode": "list",
+          "cachedResultName": "Patents",
+          "cachedResultUrl": "https://airtable.com/appDoLT6uH1FnzceO/tblEbqMVyhk95H1tT"
+        },
+        "filterByFormula": "AND({Relevance} = '', {Abstract} != '')",
+        "options": {}
+      },
+      "id": "7d0babb6-66aa-44a8-b6d1-1a72894f63f9",
+      "name": "List Patents from Airtable",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.1,
+      "position": [
+        -5264,
+        960
+      ],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "ChfmhC5tSGlFXsVF",
+          "name": "Airtable Personal Access Token account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const crypto = require('crypto');\n\n// Get the patent data from the current item\nconst patentId = $input.item.json['Patent ID'];\nconst abstract = $input.item.json['Abstract'] || '';\nconst airtableId = $input.item.json.id;\n\n// Normalize the abstract (trim whitespace and convert to lowercase)\nconst normalizedAbstract = abstract.trim().toLowerCase();\n\n// Create the string to hash: 'Patent ID | normalized Abstract | v1.0'\nconst stringToHash = `${patentId} | ${normalizedAbstract} | v1.0`;\n\n// Compute SHA1 hash\nconst sha1Hash = crypto.createHash('sha1').update(stringToHash).digest('hex');\n\n// Return the output with abstractSha1 and airtableId\nreturn {\n  abstractSha1: sha1Hash,\n  airtableId: airtableId,\n  patentId: patentId\n};"
+      },
+      "id": "1dcfdfc7-3f25-4364-8f98-892746a84e7c",
+      "name": "Compute SHA1 Hash",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -5040,
+        960
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "value": "NZNwaCggg0KRKgCr",
+          "mode": "list",
+          "cachedResultName": "PatentScoringLedger",
+          "cachedResultUrl": "/projects/yG5CMrozJvwyHc1E/datatables/NZNwaCggg0KRKgCr"
+        },
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "key",
+              "keyValue": "={{ $('Compute SHA1 Hash').item.json.abstractSha1 }}"
+            }
+          ]
+        },
+        "returnAll": true
+      },
+      "id": "1179a2b3-d7dc-4d4a-a49c-432df7b061b0",
+      "name": "Get Rows from PatentScoringLedger",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1,
+      "position": [
+        -4816,
+        960
+      ],
+      "alwaysOutputData": false
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "id-1",
+              "leftValue": "={{ $('Get Rows from PatentScoringLedger').item.json.relevance }}",
+              "operator": {
+                "type": "string",
+                "operation": "exists"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "93ea1852-3541-4d31-b2b4-55e36333569c",
+      "name": "Check If Found in Ledger",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -4592,
+        960
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "id-1",
+              "name": "relevance",
+              "value": "={{ $('Get Rows from PatentScoringLedger').item.json.relevance }}",
+              "type": "string"
+            },
+            {
+              "id": "id-2",
+              "name": "subsystem",
+              "value": "={{ $('Get Rows from PatentScoringLedger').item.json.subsystem }}",
+              "type": "string"
+            },
+            {
+              "id": "id-3",
+              "name": "airtableId",
+              "value": "={{ $('Compute SHA1 Hash').item.json.airtableId }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "effda2a9-730e-44aa-b765-18dfe1530755",
+      "name": "Map Ledger Data",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -4368,
+        864
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "id-1",
+              "leftValue": "={{ $('Map Ledger Data').item.json.relevance }}",
+              "rightValue": "Low",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "7342bfc4-d439-4359-8292-50ff8cd221a0",
+      "name": "Check If Relevance is Low (Ledger)",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -4080,
+        864
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "deleteRecord",
+        "base": {
+          "__rl": true,
+          "value": "appDoLT6uH1FnzceO",
+          "mode": "list",
+          "cachedResultName": "Patents",
+          "cachedResultUrl": "https://airtable.com/appDoLT6uH1FnzceO"
+        },
+        "table": {
+          "__rl": true,
+          "value": "tblEbqMVyhk95H1tT",
+          "mode": "list",
+          "cachedResultName": "Patents",
+          "cachedResultUrl": "https://airtable.com/appDoLT6uH1FnzceO/tblEbqMVyhk95H1tT"
+        },
+        "id": "={{ $json.airtableId }}"
+      },
+      "id": "e5213695-c765-4dc5-a84f-20385bf06ce3",
+      "name": "Delete Airtable Record (Low from Ledger)",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.1,
+      "position": [
+        -3792,
+        768
+      ],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "ChfmhC5tSGlFXsVF",
+          "name": "Airtable Personal Access Token account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "base": {
+          "__rl": true,
+          "mode": "list",
+          "value": "Patents"
+        },
+        "table": {
+          "__rl": true,
+          "mode": "list",
+          "value": "Patents"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "id": "={{ $json.airtableId }}",
+            "Relevance": "={{ $json.relevance }}",
+            "Subsystem": "={{ $json.subsystem }}"
+          }
+        },
+        "options": {}
+      },
+      "id": "39542454-7414-4528-bf3f-89faef440356",
+      "name": "Update Airtable Record (Ledger)",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.1,
+      "position": [
+        -3792,
+        960
+      ],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "ChfmhC5tSGlFXsVF",
+          "name": "Airtable Personal Access Token account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "id-1",
+              "name": "prompt",
+              "value": "=Analyze the following patent and determine its relevance. Return a JSON object with:\n1. \"Relevance\": \"High\", \"Medium\", or \"Low\"\n2. \"Subsystem\": An array of relevant subsystems (empty array if Relevance is Low)\n\nPatent Title: {{ $('List Patents from Airtable').item.json.fields.Title }}\n\nPatent Abstract: {{ $('List Patents from Airtable').item.json.fields.Abstract }}\n\nReturn only valid JSON in this format:\n{\n  \"Relevance\": \"High|Medium|Low\",\n  \"Subsystem\": []\n}",
+              "type": "string"
+            },
+            {
+              "id": "id-2",
+              "name": "abstractSha1",
+              "value": "={{ $('Compute SHA1 Hash').item.json.abstractSha1 }}",
+              "type": "string"
+            },
+            {
+              "id": "id-3",
+              "name": "airtableId",
+              "value": "={{ $('List Patents from Airtable').item.json.id }}",
+              "type": "string"
+            },
+            {
+              "id": "id-4",
+              "name": "patentId",
+              "value": "={{ $('List Patents from Airtable').item.json.fields['Patent ID'] }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "84348b2e-b9a4-465d-b397-933c53482d1f",
+      "name": "Prepare OpenAI Prompt",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -4368,
+        1152
+      ]
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "value": "chatgpt-4o-latest",
+          "mode": "list",
+          "cachedResultName": "CHATGPT-4O-LATEST"
+        },
+        "messages": {
+          "values": [
+            {
+              "content": "={{ $('Prepare OpenAI Prompt').item.json.prompt }}"
+            }
+          ]
+        },
+        "jsonOutput": true,
+        "options": {}
+      },
+      "id": "b290a634-02bf-49da-a25e-1410ad49fe18",
+      "name": "Call OpenAI",
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1.8,
+      "position": [
+        -4144,
+        1152
+      ],
+      "credentials": {
+        "openAiApi": {
+          "id": "cTO3rieuAD8X3mNH",
+          "name": "OpenAi account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// Get the OpenAI response from the previous node\nconst openAIResponse = $input.item.json.message?.content || $input.item.json.content || '';\n\n// Parse the JSON response\nlet parsedData;\ntry {\n  parsedData = JSON.parse(openAIResponse);\n} catch (error) {\n  throw new Error('Failed to parse OpenAI response as JSON: ' + error.message);\n}\n\n// Extract the required fields\nconst relevance = parsedData.Relevance || parsedData.relevance || '';\nconst subsystem = parsedData.Subsystem || parsedData.subsystem || '';\n\n// Get the fields from the original item (passed through from previous nodes)\nconst abstractSha1 = $input.item.json.abstractSha1 || '';\nconst airtableId = $input.item.json.airtableId || '';\nconst patentId = $input.item.json['Patent ID'] || $input.item.json.patentId || '';\n\n// Return the structured data\nreturn {\n  abstractSha1: abstractSha1,\n  airtableId: airtableId,\n  'Patent ID': patentId,\n  Relevance: relevance,\n  Subsystem: subsystem\n};"
+      },
+      "id": "c67ebf82-84c2-4762-ad8e-103ef0c2fbbf",
+      "name": "Parse OpenAI JSON Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -3792,
+        1152
+      ]
+    },
+    {
+      "parameters": {
+        "dataTableId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "PatentScoringLedger"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "doc|abstractSha1": "={{ $('Compute SHA1 Hash').item.json.sha1Hash }}",
+            "relevance": "={{ $('Parse OpenAI JSON Response').item.json.relevance }}",
+            "subsystem": "={{ $('Parse OpenAI JSON Response').item.json.subsystem }}"
+          }
+        },
+        "options": {}
+      },
+      "id": "636578de-4aad-4175-8a82-0e11a70bb6b0",
+      "name": "Insert Row into PatentScoringLedger",
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1,
+      "position": [
+        -3568,
+        1152
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "id-1",
+              "leftValue": "={{ $('Parse OpenAI JSON Response').item.json.relevance }}",
+              "rightValue": "Low",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "dc86ebc5-a0f1-4b76-a755-f085048a127c",
+      "name": "Check If Relevance is Low (OpenAI)",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -3344,
+        1152
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "deleteRecord",
+        "base": {
+          "__rl": true,
+          "value": "appDoLT6uH1FnzceO",
+          "mode": "list",
+          "cachedResultName": "Patents",
+          "cachedResultUrl": "https://airtable.com/appDoLT6uH1FnzceO"
+        },
+        "table": {
+          "__rl": true,
+          "value": "tblEbqMVyhk95H1tT",
+          "mode": "list",
+          "cachedResultName": "Patents",
+          "cachedResultUrl": "https://airtable.com/appDoLT6uH1FnzceO/tblEbqMVyhk95H1tT"
+        },
+        "id": "={{ $json.airtableId }}"
+      },
+      "id": "1dc003bc-4b0d-4b88-a6cc-cc11b34784c7",
+      "name": "Delete Airtable Record (Low from OpenAI)",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.1,
+      "position": [
+        -3120,
+        1056
+      ],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "ChfmhC5tSGlFXsVF",
+          "name": "Airtable Personal Access Token account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "base": {
+          "__rl": true,
+          "mode": "list",
+          "value": "Patents"
+        },
+        "table": {
+          "__rl": true,
+          "mode": "list",
+          "value": "Patents"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "id": "={{ $json.airtableId }}",
+            "Relevance": "={{ $json.relevance }}",
+            "Subsystem": "={{ $json.subsystem }}"
+          }
+        },
+        "options": {}
+      },
+      "id": "f35e2ba9-a923-454e-8eb8-514c33fb9a27",
+      "name": "Update Airtable Record (OpenAI)",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.1,
+      "position": [
+        -3120,
+        1248
+      ],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "ChfmhC5tSGlFXsVF",
+          "name": "Airtable Personal Access Token account"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "List Patents from Airtable",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "List Patents from Airtable": {
+      "main": [
+        [
+          {
+            "node": "Compute SHA1 Hash",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Compute SHA1 Hash": {
+      "main": [
+        [
+          {
+            "node": "Get Rows from PatentScoringLedger",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Rows from PatentScoringLedger": {
+      "main": [
+        [
+          {
+            "node": "Check If Found in Ledger",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check If Found in Ledger": {
+      "main": [
+        [
+          {
+            "node": "Map Ledger Data",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Prepare OpenAI Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Map Ledger Data": {
+      "main": [
+        [
+          {
+            "node": "Check If Relevance is Low (Ledger)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check If Relevance is Low (Ledger)": {
+      "main": [
+        [
+          {
+            "node": "Delete Airtable Record (Low from Ledger)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Update Airtable Record (Ledger)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare OpenAI Prompt": {
+      "main": [
+        [
+          {
+            "node": "Call OpenAI",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call OpenAI": {
+      "main": [
+        [
+          {
+            "node": "Parse OpenAI JSON Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse OpenAI JSON Response": {
+      "main": [
+        [
+          {
+            "node": "Insert Row into PatentScoringLedger",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Insert Row into PatentScoringLedger": {
+      "main": [
+        [
+          {
+            "node": "Check If Relevance is Low (OpenAI)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check If Relevance is Low (OpenAI)": {
+      "main": [
+        [
+          {
+            "node": "Delete Airtable Record (Low from OpenAI)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Update Airtable Record (OpenAI)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "e1adb77d-2df2-402e-b90e-75f2855b512b",
+  "meta": {
+    "instanceId": "1d1f2a1d226074048ff5aa2ce9e94dec4e82ca01f9cf4521afdd77d7e5904d80"
+  },
+  "id": "VvYCKvmbvgrqcFEO",
+  "tags": []
+}

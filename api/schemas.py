@@ -1,5 +1,5 @@
 from typing import List, Optional, Dict, Any
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 from datetime import datetime
 
 # --- Existing schemas (updated to match spec) ---
@@ -19,10 +19,7 @@ class RecordSummary(BaseModel):
     sha1: Optional[str] = None  # Legacy field
     updated_at: Optional[str] = None  # Legacy field
     score: Optional[int] = None  # Legacy field
-
-    class Config:
-        populate_by_name = True
-
+    model_config = ConfigDict(populate_by_name=True)
 
 class Provenance(BaseModel):
     """Scoring provenance metadata."""
@@ -30,10 +27,7 @@ class Provenance(BaseModel):
     prompt_version: Optional[str] = None
     scored_at: Optional[datetime] = None
     model_id: Optional[str] = Field(None, alias="modelId")
-
-    class Config:
-        populate_by_name = True
-
+    model_config = ConfigDict(populate_by_name=True)
 
 class RecordDetail(RecordSummary):
     """Detailed record with provenance."""
@@ -47,20 +41,14 @@ class ScoreRequest(BaseModel):
     patent_id: Optional[str] = Field(None, alias="patentId")
     mapping: Optional[Dict[str, List[str]]] = None
     mode: Optional[str] = Field(default="llm", description="llm or keyword")
-
-    class Config:
-        populate_by_name = True
-
+    model_config = ConfigDict(populate_by_name=True)
 
 class ScoreResponse(BaseModel):
     """Response from scoring endpoint."""
     relevance: str  # "High" | "Medium" | "Low"
     subsystem: List[str]
     sha1: str
-
-    class Config:
-        populate_by_name = True
-
+    model_config = ConfigDict(populate_by_name=True)
 
 class ListRecordsResponse(BaseModel):
     """Paginated list of records (legacy endpoint)."""
@@ -88,10 +76,7 @@ class ScoreListItem(BaseModel):
     pub_date: Optional[str] = Field(None, alias="pubDate")
     source: Optional[str] = None
     scored_at: str = Field(..., alias="scoredAt")
-
-    class Config:
-        populate_by_name = True
-
+    model_config = ConfigDict(populate_by_name=True)
 
 class ScoresListResponse(BaseModel):
     """Response for GET /api/scores."""
@@ -99,10 +84,7 @@ class ScoresListResponse(BaseModel):
     page: int
     page_size: int = Field(..., alias="pageSize")
     total: int
-
-    class Config:
-        populate_by_name = True
-
+    model_config = ConfigDict(populate_by_name=True)
 
 class QueueListItem(BaseModel):
     """Item in the queue list (GET /api/queue)."""
@@ -114,10 +96,7 @@ class QueueListItem(BaseModel):
     source: Optional[str] = None
     status: str  # pending | scored | skipped
     enqueued_at: str = Field(..., alias="enqueuedAt")
-
-    class Config:
-        populate_by_name = True
-
+    model_config = ConfigDict(populate_by_name=True)
 
 class QueueListResponse(BaseModel):
     """Response for GET /api/queue."""
@@ -125,10 +104,7 @@ class QueueListResponse(BaseModel):
     page: int
     page_size: int = Field(..., alias="pageSize")
     total: int
-
-    class Config:
-        populate_by_name = True
-
+    model_config = ConfigDict(populate_by_name=True)
 
 class SettingsResponse(BaseModel):
     """Response for GET /api/settings."""
@@ -137,10 +113,7 @@ class SettingsResponse(BaseModel):
     airtable_base_id: str = Field(..., alias="airtableBaseId")
     airtable_table_name: str = Field(..., alias="airtableTableName")
     admin_api_key_set: bool = Field(..., alias="adminApiKeySet")
-
-    class Config:
-        populate_by_name = True
-
+    model_config = ConfigDict(populate_by_name=True)
 
 class IngestJobResponse(BaseModel):
     """Response for ingest job status (GET /api/ingest/{jobId})."""
@@ -151,6 +124,4 @@ class IngestJobResponse(BaseModel):
     enqueued_count: int = Field(..., alias="enqueuedCount")
     csv_url: Optional[str] = Field(None, alias="csvUrl")
     log: Optional[str] = None
-
-    class Config:
-        populate_by_name = True
+    model_config = ConfigDict(populate_by_name=True)

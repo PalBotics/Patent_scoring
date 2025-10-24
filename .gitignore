@@ -26,7 +26,15 @@ wheels/
 env/
 venv/
 ENV/
-.env.*
+
+# Node modules
+node_modules/
+**/node_modules/
+
+# Build outputs
+dist/
+build/
+*.tsbuildinfo
 
 # IDE
 .idea/

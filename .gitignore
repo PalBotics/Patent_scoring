@@ -53,3 +53,20 @@ build/
 # Local development
 .DS_Store
 Thumbs.db
+ 
+# Temp and backup files
+*.tmp
+*.temp
+*.backup
+*.bak
+*.orig
+*.rej
+~$*
+
+# Local runtime artifacts
+server_pid.txt
+*.pid
+
+# Misc local files
+*.local
+*.env.local

@@ -1,95 +1,102 @@
 ﻿import os
+from typing import Dict, List, Optional, Tuple, Union
+
 import requests
-from typing import List, Dict, Optional, Tuple
 from dotenv import load_dotenv
 
 load_dotenv()
 
-AIRTABLE_API_KEY = os.getenv('AIRTABLE_API_KEY')
-AIRTABLE_BASE_ID = os.getenv('AIRTABLE_BASE_ID')
-AIRTABLE_TABLE_NAME = os.getenv('AIRTABLE_TABLE_NAME', 'Patents')
+AIRTABLE_API_KEY = os.getenv("AIRTABLE_API_KEY")
+AIRTABLE_BASE_ID = os.getenv("AIRTABLE_BASE_ID")
+AIRTABLE_TABLE_NAME = os.getenv("AIRTABLE_TABLE_NAME", "Patents")
 
 
 def _base_headers() -> Dict[str, str]:
     return {
-        'Authorization': f'Bearer {AIRTABLE_API_KEY}',
-        'Content-Type': 'application/json',
+        "Authorization": f"Bearer {AIRTABLE_API_KEY}",
+        "Content-Type": "application/json",
+    }
+
+
+def _normalize_record(record: Dict) -> Dict:
+    fields = record.get("fields", {}) or {}
+    return {
+        "id": record.get("id", ""),
+        "patent_id": fields.get("Patent ID", ""),
+        "title": fields.get("Title", ""),
+        "abstract": fields.get("Abstract", ""),
+        "relevance": fields.get("Relevance"),
+        "subsystem": fields.get("Subsystem", []) or [],
+        "pub_date": fields.get("Publication Date", ""),
     }
 
 
 def fetch_records(limit: int = 25, offset: int = 0) -> Tuple[List[Dict], int]:
-    """Fetch a slice of records from Airtable, approximating total.
-    - limit: number of records to return
-    - offset: zero-based index into the full record list
-    Returns (records, total_estimate)
     """
-    url = f'https://api.airtable.com/v0/{AIRTABLE_BASE_ID}/{AIRTABLE_TABLE_NAME}'
+    Fetch a window of records from Airtable with a real total count.
+
+    Args:
+        limit: number of records to return
+        offset: zero-based index into the full record list
+
+    Returns:
+        (records_window, total_count)
+    """
+    if not (AIRTABLE_API_KEY and AIRTABLE_BASE_ID and AIRTABLE_TABLE_NAME):
+        raise RuntimeError("Airtable environment variables not configured")
+
+    url = f"https://api.airtable.com/v0/{AIRTABLE_BASE_ID}/{AIRTABLE_TABLE_NAME}"
     headers = _base_headers()
 
-    collected: List[Dict] = []
-    seen = 0
+    buffer: List[Dict] = []
+    total_count = 0
     token: Optional[str] = None
     page_size = 100  # Airtable max page size
-    has_more = False
 
     while True:
-        params: Dict[str, str | int] = {
-            'pageSize': page_size,
-            'sort[0][field]': 'Patent ID',
-            'sort[0][direction]': 'asc',
+        params: Dict[str, Union[str, int]] = {
+            "pageSize": page_size,
+            "sort[0][field]": "Patent ID",
+            "sort[0][direction]": "asc",
         }
         if token:
-            params['offset'] = token
+            params["offset"] = token
 
         resp = requests.get(url, headers=headers, params=params)
         resp.raise_for_status()
         data = resp.json()
 
-        batch = []
-        for record in data.get('records', []):
-            fields = record.get('fields', {})
-            batch.append({
-                'id': record.get('id', ''),
-                'patent_id': fields.get('Patent ID', ''),
-                'title': fields.get('Title', ''),
-                'abstract': fields.get('Abstract', ''),
-                'relevance': fields.get('Relevance'),
-                'subsystem': fields.get('Subsystem', []),
-                'pub_date': fields.get('Publication Date', ''),
-            })
+        batch = [_normalize_record(r) for r in data.get("records", [])]
+        total_count += len(batch)
 
-        seen += len(batch)
-        collected.extend(batch)
+        # Accumulate only until we have enough to slice the requested window
+        if len(buffer) < offset + limit:
+            need_more = (offset + limit) - len(buffer)
+            if need_more > 0:
+                buffer.extend(batch[:need_more])
 
-        # Stop once we have enough to satisfy the requested window
-        if len(collected) >= offset + limit:
-            has_more = 'offset' in data
+        token = data.get("offset")
+        if not token:
             break
 
-        if 'offset' in data:
-            token = data['offset']
-        else:
-            has_more = False
-            break
-
-    slice_start = offset
-    slice_end = offset + limit
-    window = collected[slice_start:slice_end]
-
-    # Estimate total: what we've covered plus 1 if Airtable indicated more
-    total_estimate = offset + len(window) + (1 if has_more else 0)
-    return window, total_estimate
+    window = buffer[offset : offset + limit]
+    return window, total_count
 
 
 def update_airtable_record(record_id: str, relevance: str, subsystem: List[str], score: int) -> None:
-    """Update an Airtable record with scoring results."""
-    url = f'https://api.airtable.com/v0/{AIRTABLE_BASE_ID}/{AIRTABLE_TABLE_NAME}/{record_id}'
+    """
+    Update an Airtable record with scoring results.
+    """
+    if not (AIRTABLE_API_KEY and AIRTABLE_BASE_ID and AIRTABLE_TABLE_NAME):
+        raise RuntimeError("Airtable environment variables not configured")
+
+    url = f"https://api.airtable.com/v0/{AIRTABLE_BASE_ID}/{AIRTABLE_TABLE_NAME}/{record_id}"
     headers = _base_headers()
     data = {
-        'fields': {
-            'Relevance': relevance,
-            'Subsystem': subsystem if subsystem else [],
-            'Score': score,
+        "fields": {
+            "Relevance": relevance,
+            "Subsystem": subsystem if subsystem else [],
+            "Score": score,
         }
     }
     response = requests.patch(url, headers=headers, json=data)

@@ -1,26 +1,30 @@
-import os
-import sqlite3
-from fastapi import FastAPI, Depends, HTTPException, status, Header
-from fastapi.responses import JSONResponse
+﻿import os
+from datetime import datetime
+from typing import List, Optional
+
+from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy.orm import Session
 from dotenv import load_dotenv
-from typing import Optional, List
-import sys
-from pathlib import Path
-# Add parent directory to Python path for imports
-sys.path.append(str(Path(__file__).parent.parent))
 
 from api.schemas import (
-    RecordSummary, RecordDetail, ListRecordsResponse,
-    ScoreRequest, ScoreResponse, ErrorResponse, Provenance,
-    SettingsResponse, ScoresListResponse, ScoreListItem
+    ErrorResponse,
+    ListRecordsResponse,
+    Provenance,
+    QueueListItem,
+    QueueListResponse,
+    RecordDetail,
+    RecordSummary,
+    ScoreListItem,
+    ScoreRequest,
+    ScoreResponse,
+    ScoresListResponse,
+    SettingsResponse,
+    IngestJobResponse,
 )
-from datetime import datetime
-import db
-import scorer
-from api import airtable_service
 from api.db import get_db, init_db as init_database
-from sqlalchemy.orm import Session
+from api import airtable_service
+import scorer
 
 load_dotenv()
 
@@ -44,39 +48,36 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
 def get_api_key(authorization: Optional[str] = Header(None)):
-    try:
-        if not API_KEY:
-            raise HTTPException(status_code=500, detail="Server misconfigured: APP_API_KEY not set.")
-        if not authorization:
-            raise HTTPException(status_code=401, detail="Missing Authorization header")
-        if not authorization.startswith("Bearer "):
-            raise HTTPException(status_code=401, detail="Invalid Authorization header format")
-        token = authorization.split(" ", 1)[1]
-        if token != API_KEY:
-            raise HTTPException(status_code=401, detail="Invalid API key")
-        return token
-    except HTTPException as he:
-        raise he
-    except Exception as e:
-        print(f"Error in get_api_key: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+    if not API_KEY:
+        raise HTTPException(status_code=500, detail="Server misconfigured: APP_API_KEY not set.")
+    if not authorization:
+        raise HTTPException(status_code=401, detail="Missing Authorization header")
+    if not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Invalid Authorization header format")
+    token = authorization.split(" ", 1)[1]
+    if token != API_KEY:
+        raise HTTPException(status_code=401, detail="Invalid API key")
+    return token
+
 
 @app.get("/api/v1/records", response_model=ListRecordsResponse)
-async def list_records(limit: int = 25, offset: int = 0, q: Optional[str] = None, relevance: Optional[str] = None, subsystem: Optional[str] = None, api_key: str = Depends(get_api_key)):
+async def list_records(
+    limit: int = 25,
+    offset: int = 0,
+    q: Optional[str] = None,
+    relevance: Optional[str] = None,
+    subsystem: Optional[str] = None,
+    api_key: str = Depends(get_api_key),
+):
     try:
-        # Fetch records from Airtable
+        # Fetch windowed records from Airtable
         records, total = airtable_service.fetch_records(limit=limit, offset=offset)
-        
-        # Convert Airtable records to RecordSummary format
-        record_list = []
-        for i, rec in enumerate(records):
-            if i < offset:
-                continue
-            if i >= offset + limit:
-                break
-            # Normalize fields from Airtable to avoid validation errors
-            raw_subsystem = rec.get('subsystem', [])
+
+        record_list: List[RecordSummary] = []
+        for rec in records:
+            raw_subsystem = rec.get("subsystem", [])
             if raw_subsystem is None:
                 subsys: List[str] = []
             elif isinstance(raw_subsystem, str):
@@ -86,20 +87,24 @@ async def list_records(limit: int = 25, offset: int = 0, q: Optional[str] = None
             else:
                 subsys = []
 
-            pub_date_val = rec.get('pub_date', '')
-            pub_date_str = str(pub_date_val) if pub_date_val is not None else ''
-            record_list.append(RecordSummary(
-                id=rec.get('id', ''),
-                patent_id=rec.get('patent_id', ''),
-                title=rec.get('title', ''),
-                abstract=rec.get('abstract', ''),
-                relevance=rec.get('relevance'),
-                score=0,  # Default score
-                subsystem=subsys,
-                sha1='',  # Not stored in Airtable
-                updated_at=pub_date_str
-            ))
-        
+            pub_date_val = rec.get("pub_date", "")
+            pub_date_str = str(pub_date_val) if pub_date_val is not None else ""
+
+            record_list.append(
+                RecordSummary(
+                    id=rec.get("id", ""),
+                    patent_id=rec.get("patent_id", ""),
+                    abstract_sha1=None,
+                    title=rec.get("title", ""),
+                    abstract=rec.get("abstract", ""),
+                    relevance=rec.get("relevance"),
+                    score=0,  # Legacy convenience field
+                    subsystem=subsys,
+                    sha1="",
+                    updated_at=pub_date_str,
+                )
+            )
+
         return ListRecordsResponse(total=total, offset=offset, limit=limit, records=record_list)
     except Exception as e:
         import traceback
@@ -107,56 +112,31 @@ async def list_records(limit: int = 25, offset: int = 0, q: Optional[str] = None
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Airtable error: {str(e)}")
 
+
 @app.get("/api/v1/records/{record_id}", response_model=RecordDetail)
-def get_record(record_id: str, api_key: str = Depends(get_api_key)):
-    conn = db.init_db()
-    cur = conn.cursor()
-    cur.execute("SELECT id, patent_id, title, abstract, relevance, score, subsystem, sha1, updated_at, provenance FROM patent_scores WHERE id = ?", (record_id,))
-    row = cur.fetchone()
-    if not row:
-        raise HTTPException(status_code=404, detail="Record not found.")
-    prov = None
-    if row[9]:
-        try:
-            prov = Provenance.parse_raw(row[9])
-        except Exception:
-            prov = None
-    return RecordDetail(
-        id=row[0],
-        patent_id=row[1],
-        title=row[2],
-        abstract=row[3],
-        relevance=row[4],
-        score=row[5],
-        subsystem=(eval(row[6]) if row[6] else []),
-        sha1=row[7],
-        updated_at=row[8],
-        provenance=prov
-    )
+async def get_record(record_id: str, api_key: str = Depends(get_api_key)):
+    # Legacy endpoint not supported against new schema; return 404
+    raise HTTPException(status_code=404, detail="Legacy endpoint not implemented in this build.")
+
 
 @app.post("/api/v1/score", response_model=ScoreResponse)
 async def score_record(req: ScoreRequest, api_key: str = Depends(get_api_key)):
     try:
-        # Use scorer.keyword_score or LLM depending on req.mode
-        if req.mode == "keyword":
-            result = scorer.keyword_score(title=req.title, abstract=req.abstract, mapping=req.mapping or {})
-            prov = Provenance(method="keyword", prompt_version=None, scored_at=datetime.utcnow())
-        else:
-            # For now, just call keyword_score as a placeholder
-            result = scorer.keyword_score(title=req.title, abstract=req.abstract, mapping=req.mapping or {})
-            prov = Provenance(method="llm", prompt_version=os.getenv("PROMPT_VERSION"), scored_at=datetime.utcnow())
-        
-        # Ensure result has all required fields with proper types
+        # Use keyword scorer for now; LLM integration to be added
+        result = scorer.keyword_score(title=req.title, abstract=req.abstract, mapping=req.mapping or {})
+        prov = Provenance(method=("keyword" if req.mode == "keyword" else "llm"), prompt_version=os.getenv("PROMPT_VERSION"), scored_at=datetime.utcnow())
+
         return ScoreResponse(
             relevance=str(result.get("relevance", "Low")),
             score=int(result.get("score", 0)),
             subsystem=list(result.get("subsystem", [])),
             sha1=str(result.get("sha1", "")),
-            provenance=prov
+            provenance=prov,
         )
     except Exception as e:
         print(f"Error in score_record: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Scoring error: {str(e)}")
+
 
 @app.get("/api/v1/health")
 def health():
@@ -165,18 +145,15 @@ def health():
 
 # --- New spec endpoints ---
 
+
 @app.get("/api/settings", response_model=SettingsResponse)
 async def get_settings():
-    """
-    Get current system settings (read-only).
-    No auth required for settings visibility.
-    """
     return SettingsResponse(
         openaiModel=OPENAI_MODEL,
         promptVersion=PROMPT_VERSION,
         airtableBaseId=AIRTABLE_BASE_ID if AIRTABLE_BASE_ID else "not-set",
         airtableTableName=AIRTABLE_TABLE_NAME,
-        adminApiKeySet=bool(API_KEY)
+        adminApiKeySet=bool(API_KEY),
     )
 
 
@@ -188,17 +165,13 @@ async def list_scores(
     search: Optional[str] = None,
     source: Optional[str] = None,
     db: Session = Depends(get_db),
-    api_key: str = Depends(get_api_key)
+    api_key: str = Depends(get_api_key),
 ):
-    """
-    List scored patents with filtering and pagination.
-    """
     from api.models import Score
-    from sqlalchemy import or_, and_
+    from sqlalchemy import or_
 
     query = db.query(Score)
 
-    # Apply filters
     if relevance:
         query = query.filter(Score.relevance == relevance)
     if source:
@@ -209,36 +182,134 @@ async def list_scores(
             or_(
                 Score.title.ilike(search_term),
                 Score.abstract.ilike(search_term),
-                Score.patent_id.ilike(search_term)
+                Score.patent_id.ilike(search_term),
             )
         )
 
-    # Get total count
     total = query.count()
 
-    # Paginate
-    offset = (page - 1) * page_size
-    items_db = query.order_by(Score.scored_at.desc()).offset(offset).limit(page_size).all()
+    offset_val = (page - 1) * page_size
+    items_db = query.order_by(Score.scored_at.desc()).offset(offset_val).limit(page_size).all()
 
-    # Convert to response format
     items = [
         ScoreListItem(
             patentId=item.patent_id,
             abstractSha1=item.abstract_sha1,
             relevance=item.relevance or "Low",
-            subsystem=eval(item.subsystem_json) if item.subsystem_json else [],
+            subsystem=(eval(item.subsystem_json) if item.subsystem_json else []),
             title=item.title,
             abstract=item.abstract,
             pubDate=item.pub_date,
             source=item.source,
-            scoredAt=item.scored_at.isoformat() if item.scored_at else ""
+            scoredAt=item.scored_at.isoformat() if item.scored_at else "",
         )
         for item in items_db
     ]
 
-    return ScoresListResponse(
-        items=items,
-        page=page,
-        pageSize=page_size,
-        total=total
+    return ScoresListResponse(items=items, page=page, pageSize=page_size, total=total)
+
+
+@app.get("/api/queue", response_model=QueueListResponse)
+def get_queue(
+    page: int = 1,
+    page_size: int = 50,
+    status: Optional[str] = None,
+    db: Session = Depends(get_db),
+    api_key: str = Depends(get_api_key),
+):
+    from api.models import QueueItem
+
+    query = db.query(QueueItem)
+    if status:
+        query = query.filter(QueueItem.status == status)
+
+    query = query.order_by(QueueItem.enqueued_at.desc())
+
+    total = query.count()
+    offset_val = (page - 1) * page_size
+    items_db = query.offset(offset_val).limit(page_size).all()
+
+    items = [
+        QueueListItem(
+            patentId=item.patent_id,
+            abstractSha1=item.abstract_sha1,
+            title=item.title,
+            abstract=item.abstract,
+            pubDate=item.pub_date,
+            source=item.source,
+            status=item.status,
+            enqueuedAt=item.enqueued_at.isoformat() if item.enqueued_at else "",
+        )
+        for item in items_db
+    ]
+
+    return QueueListResponse(items=items, page=page, pageSize=page_size, total=total)
+
+
+@app.post("/api/queue/skip")
+def skip_queue_items(
+    patent_ids: List[str],
+    db: Session = Depends(get_db),
+    api_key: str = Depends(get_api_key),
+):
+    from api.models import QueueItem
+
+    updated = (
+        db.query(QueueItem)
+        .filter(QueueItem.patent_id.in_(patent_ids))
+        .update({QueueItem.status: "skipped"}, synchronize_session=False)
+    )
+
+    db.commit()
+
+    return {"updated": updated, "patentIds": patent_ids}
+
+
+# --- Ingest endpoints ---
+
+@app.post("/api/ingest", response_model=IngestJobResponse)
+def start_ingest(
+    filename: Optional[str] = None,
+    db: Session = Depends(get_db),
+    api_key: str = Depends(get_api_key),
+):
+    """Start an ingest job (stub)."""
+    from api.models import IngestJob
+
+    job = IngestJob(filename=filename or "upload.csv", status="running")
+    db.add(job)
+    db.commit()
+    db.refresh(job)
+
+    return IngestJobResponse(
+        jobId=job.id,
+        filename=job.filename,
+        status=job.status,
+        matchedCount=job.matched_count,
+        enqueuedCount=job.enqueued_count,
+        csvUrl=None,
+        log=job.log,
+    )
+
+
+@app.get("/api/ingest/{job_id}", response_model=IngestJobResponse)
+def get_ingest_job(
+    job_id: int,
+    db: Session = Depends(get_db),
+    api_key: str = Depends(get_api_key),
+):
+    from api.models import IngestJob
+
+    job = db.query(IngestJob).get(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Ingest job not found")
+
+    return IngestJobResponse(
+        jobId=job.id,
+        filename=job.filename,
+        status=job.status,
+        matchedCount=job.matched_count,
+        enqueuedCount=job.enqueued_count,
+        csvUrl=None,
+        log=job.log,
     )

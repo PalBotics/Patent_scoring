@@ -7,7 +7,8 @@ import requests
 import json
 import sys
 
-BASE_URL = "http://localhost:8000"
+import os
+BASE_URL = os.getenv("BASE_URL", "http://localhost:8000")
 API_KEY = "patscore-8f3k9d2m5p7r"
 HEADERS = {"Authorization": f"Bearer {API_KEY}"}
 

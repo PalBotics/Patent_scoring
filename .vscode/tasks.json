@@ -1,0 +1,58 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "server: start 8002",
+      "type": "shell",
+      "command": "python -m uvicorn api.main:app --host 127.0.0.1 --port 8002",
+      "isBackground": true,
+      "problemMatcher": [
+        {
+          "pattern": [
+            {
+              "regexp": ".*",
+              "file": 1,
+              "location": 2,
+              "message": 3
+            }
+          ],
+          "background": {
+            "activeOnStart": true,
+            "beginsPattern": ".*Started server process.*|.*Waiting for application startup.*",
+            "endsPattern": ".*Uvicorn running on.*"
+          }
+        }
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      }
+    },
+    {
+      "label": "tests: live API (BASE_URL=8002)",
+      "type": "shell",
+      "command": "$ProgressPreference='SilentlyContinue'; $ErrorActionPreference='SilentlyContinue'; for ($i=0; $i -lt 30; $i++) { try { $resp = Invoke-RestMethod -Uri 'http://127.0.0.1:8002/api/v1/health' -Method GET; if ($resp.ok -eq $true) { break } } catch {}; Start-Sleep -Seconds 1 }; $env:BASE_URL='http://127.0.0.1:8002'; python test_api_live.py",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      }
+    },
+    {
+      "label": "tests: pytest phase1",
+      "type": "shell",
+      "command": "python test_phase1.py -v",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      }
+    },
+    {
+      "label": "dev: run all",
+      "type": "shell",
+      "command": "echo Running server, live tests, and pytest...",
+      "dependsOrder": "sequence",
+      "dependsOn": [
+        "server: start 8002",
+        "tests: live API (BASE_URL=8002)",
+        "tests: pytest phase1"
+      ]
+    }
+  ]
+}

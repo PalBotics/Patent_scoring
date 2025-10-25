@@ -2,8 +2,9 @@
 from datetime import datetime
 from typing import List, Optional
 
-from fastapi import Depends, FastAPI, Header, HTTPException
+from fastapi import Depends, FastAPI, Header, HTTPException, Security
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
 from dotenv import load_dotenv
 
@@ -37,6 +38,9 @@ PROMPT_VERSION = os.getenv("PROMPT_VERSION", "v1.0")
 AIRTABLE_BASE_ID = os.getenv("AIRTABLE_BASE_ID", "")
 AIRTABLE_TABLE_NAME = os.getenv("AIRTABLE_TABLE_NAME", "Patents")
 
+# Security scheme for Swagger UI
+security = HTTPBearer()
+
 app = FastAPI(title="Patent Scoring API", version="0.1.0")
 
 # Allow CORS for local dev
@@ -49,17 +53,12 @@ app.add_middleware(
 )
 
 
-def get_api_key(authorization: Optional[str] = Header(None)):
+def get_api_key(credentials: HTTPAuthorizationCredentials = Security(security)):
     if not API_KEY:
         raise HTTPException(status_code=500, detail="Server misconfigured: APP_API_KEY not set.")
-    if not authorization:
-        raise HTTPException(status_code=401, detail="Missing Authorization header")
-    if not authorization.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="Invalid Authorization header format")
-    token = authorization.split(" ", 1)[1]
-    if token != API_KEY:
+    if credentials.credentials != API_KEY:
         raise HTTPException(status_code=401, detail="Invalid API key")
-    return token
+    return credentials.credentials
 
 
 @app.get("/api/v1/records", response_model=ListRecordsResponse)
@@ -115,8 +114,61 @@ async def list_records(
 
 @app.get("/api/v1/records/{record_id}", response_model=RecordDetail)
 async def get_record(record_id: str, api_key: str = Depends(get_api_key)):
-    # Legacy endpoint not supported against new schema; return 404
-    raise HTTPException(status_code=404, detail="Legacy endpoint not implemented in this build.")
+    """Fetch a single record from Airtable by record ID."""
+    try:
+        import requests
+        
+        if not (airtable_service.AIRTABLE_API_KEY and airtable_service.AIRTABLE_BASE_ID and airtable_service.AIRTABLE_TABLE_NAME):
+            raise HTTPException(status_code=500, detail="Airtable not configured")
+        
+        url = f"https://api.airtable.com/v0/{airtable_service.AIRTABLE_BASE_ID}/{airtable_service.AIRTABLE_TABLE_NAME}/{record_id}"
+        headers = airtable_service._base_headers()
+        
+        response = requests.get(url, headers=headers)
+        
+        if response.status_code == 404:
+            raise HTTPException(status_code=404, detail=f"Record {record_id} not found")
+        
+        response.raise_for_status()
+        data = response.json()
+        
+        # Normalize the single record
+        normalized = airtable_service._normalize_record(data)
+        
+        # Convert to RecordDetail schema
+        raw_subsystem = normalized.get("subsystem", [])
+        if raw_subsystem is None:
+            subsys: List[str] = []
+        elif isinstance(raw_subsystem, str):
+            subsys = [raw_subsystem]
+        elif isinstance(raw_subsystem, list):
+            subsys = [str(x) for x in raw_subsystem if x is not None]
+        else:
+            subsys = []
+        
+        pub_date_val = normalized.get("pub_date", "")
+        pub_date_str = str(pub_date_val) if pub_date_val is not None else ""
+        
+        return RecordDetail(
+            id=normalized.get("id", ""),
+            patent_id=normalized.get("patent_id", ""),
+            abstract_sha1=None,
+            title=normalized.get("title", ""),
+            abstract=normalized.get("abstract", ""),
+            relevance=normalized.get("relevance"),
+            score=0,
+            subsystem=subsys,
+            sha1="",
+            updated_at=pub_date_str,
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        print(f"Error in get_record: {e}")
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Error fetching record: {str(e)}")
 
 
 @app.post("/api/v1/score", response_model=ScoreResponse)

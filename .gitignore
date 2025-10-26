@@ -31,6 +31,10 @@ ENV/
 node_modules/
 **/node_modules/
 
+# Next.js build cache/output
+.next/
+out/
+
 # Build outputs
 dist/
 build/
@@ -58,6 +62,8 @@ Thumbs.db
 *.tmp
 *.temp
 *.backup
+*.backup*
+*_corrupt
 *.bak
 *.orig
 *.rej

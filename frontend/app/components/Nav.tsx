@@ -7,6 +7,7 @@ export function Nav() {
         <Link href="/" className="font-semibold">Patent Scoring</Link>
         <nav className="flex items-center gap-4 text-sm">
           <Link href="/" className="hover:underline">Home</Link>
+          <Link href="/records" className="hover:underline">Records</Link>
           <Link href="/settings" className="hover:underline">Settings</Link>
         </nav>
       </div>

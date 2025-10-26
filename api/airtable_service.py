@@ -31,13 +31,22 @@ def _normalize_record(record: Dict) -> Dict:
     }
 
 
-def fetch_records(limit: int = 25, offset: int = 0) -> Tuple[List[Dict], int]:
+def fetch_records(
+    limit: int = 25,
+    offset: int = 0,
+    q: Optional[str] = None,
+    relevance: Optional[str] = None,
+    subsystem: Optional[str] = None,
+) -> Tuple[List[Dict], int]:
     """
     Fetch a window of records from Airtable with a real total count.
 
     Args:
         limit: number of records to return
         offset: zero-based index into the full record list
+        q: search query to filter title/abstract
+        relevance: filter by relevance level (High, Medium, Low, etc.)
+        subsystem: filter by subsystem
 
     Returns:
         (records_window, total_count)
@@ -47,6 +56,29 @@ def fetch_records(limit: int = 25, offset: int = 0) -> Tuple[List[Dict], int]:
 
     url = f"https://api.airtable.com/v0/{AIRTABLE_BASE_ID}/{AIRTABLE_TABLE_NAME}"
     headers = _base_headers()
+
+    # Build filterByFormula
+    formula_parts = []
+    if q:
+        # Search in Title and Abstract fields
+        # Using SEARCH which is case-insensitive and returns position or ERROR
+        q_escaped = q.replace('"', '\\"')
+        formula_parts.append(
+            f"OR(SEARCH(LOWER(\"{q_escaped}\"), LOWER({{Title}})), SEARCH(LOWER(\"{q_escaped}\"), LOWER({{Abstract}})))"
+        )
+    if relevance:
+        relevance_escaped = relevance.replace('"', '\\"')
+        formula_parts.append(f'{{Relevance}} = "{relevance_escaped}"')
+    if subsystem:
+        subsystem_escaped = subsystem.replace('"', '\\"')
+        formula_parts.append(f'FIND("{subsystem_escaped}", {{Subsystem}})')
+
+    filter_formula = None
+    if formula_parts:
+        if len(formula_parts) == 1:
+            filter_formula = formula_parts[0]
+        else:
+            filter_formula = "AND(" + ", ".join(formula_parts) + ")"
 
     buffer: List[Dict] = []
     total_count = 0
@@ -59,6 +91,8 @@ def fetch_records(limit: int = 25, offset: int = 0) -> Tuple[List[Dict], int]:
             "sort[0][field]": "Patent ID",
             "sort[0][direction]": "asc",
         }
+        if filter_formula:
+            params["filterByFormula"] = filter_formula
         if token:
             params["offset"] = token
 

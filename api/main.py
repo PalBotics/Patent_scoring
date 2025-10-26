@@ -1,4 +1,4 @@
-﻿import os
+import os
 from datetime import datetime
 from typing import List, Optional
 
@@ -71,9 +71,8 @@ async def list_records(
     api_key: str = Depends(get_api_key),
 ):
     try:
-        # Fetch windowed records from Airtable
-        records, total = airtable_service.fetch_records(limit=limit, offset=offset)
-
+        # Fetch windowed records from Airtable with filters
+        records, total = airtable_service.fetch_records(limit=limit, offset=offset, q=q, relevance=relevance, subsystem=subsystem)
         record_list: List[RecordSummary] = []
         for rec in records:
             raw_subsystem = rec.get("subsystem", [])
@@ -365,3 +364,7 @@ def get_ingest_job(
         csvUrl=None,
         log=job.log,
     )
+
+
+
+

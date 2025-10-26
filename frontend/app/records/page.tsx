@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useCallback } from "react";
 import Link from "next/link";
 import { api, ListRecordsResponse, RecordSummary } from "@/lib/api";
 
@@ -12,6 +12,10 @@ export default function RecordsPage() {
   const [offset, setOffset] = useState(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string>("");
+  
+  const [searchInput, setSearchInput] = useState("");
+  const [searchText, setSearchText] = useState("");
+  const [relevanceFilter, setRelevanceFilter] = useState("");
 
   const page = useMemo(() => Math.floor(offset / PAGE_SIZE) + 1, [offset]);
   const totalPages = useMemo(() => Math.max(1, Math.ceil(total / PAGE_SIZE)), [total]);
@@ -21,7 +25,13 @@ export default function RecordsPage() {
     async function load() {
       setLoading(true);
       setError("");
-      const query = `/api/v1/records?limit=${PAGE_SIZE}&offset=${offset}`;
+      const params = new URLSearchParams();
+      params.set("limit", String(PAGE_SIZE));
+      params.set("offset", String(offset));
+      if (searchText.trim()) params.set("q", searchText.trim());
+      if (relevanceFilter) params.set("relevance", relevanceFilter);
+      
+      const query = `/api/v1/records?${params.toString()}`;
       const res = await api.get<ListRecordsResponse>(query);
       if (!cancelled) {
         if (res.ok) {
@@ -37,7 +47,7 @@ export default function RecordsPage() {
     return () => {
       cancelled = true;
     };
-  }, [offset]);
+  }, [offset, searchText, relevanceFilter]);
 
   function nextPage() {
     if (offset + PAGE_SIZE < total) setOffset(offset + PAGE_SIZE);
@@ -46,9 +56,67 @@ export default function RecordsPage() {
     setOffset(Math.max(0, offset - PAGE_SIZE));
   }
 
+  function handleSearch(e: React.FormEvent) {
+    e.preventDefault();
+    setSearchText(searchInput);
+    setOffset(0); // Reset to first page when searching
+  }
+
+  function clearFilters() {
+    setSearchInput("");
+    setSearchText("");
+    setRelevanceFilter("");
+    setOffset(0);
+  }
+
+  function handleRelevanceChange(value: string) {
+    setRelevanceFilter(value);
+    setOffset(0);
+  }
+
   return (
     <div className="space-y-4">
       <h1 className="text-2xl font-semibold">Records</h1>
+
+      <form onSubmit={handleSearch} className="flex flex-wrap gap-2 items-end">
+        <div className="flex-1 min-w-[200px]">
+          <label className="block text-sm font-medium mb-1">Search</label>
+          <input
+            type="text"
+            className="w-full rounded border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-800 px-3 py-2 text-sm text-black dark:text-white"
+            placeholder="Search title, abstract, or patent ID..."
+            value={searchInput}
+            onChange={(e) => setSearchInput(e.target.value)}
+          />
+        </div>
+        <div className="w-40">
+          <label className="block text-sm font-medium mb-1">Relevance</label>
+          <select
+            className="w-full rounded border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-800 px-3 py-2 text-sm text-black dark:text-white"
+            value={relevanceFilter}
+            onChange={(e) => handleRelevanceChange(e.target.value)}
+          >
+            <option value="">All</option>
+            <option value="High">High</option>
+            <option value="Medium">Medium</option>
+            <option value="Low">Low</option>
+          </select>
+        </div>
+        <button
+          type="submit"
+          className="rounded bg-blue-600 text-white px-4 py-2 text-sm hover:bg-blue-700"
+        >
+          Search
+        </button>
+        <button
+          type="button"
+          onClick={clearFilters}
+          className="rounded border border-zinc-300 dark:border-zinc-600 px-4 py-2 text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800"
+        >
+          Clear
+        </button>
+      </form>
+
       <div className="flex items-center gap-2 text-sm">
         <button onClick={prevPage} disabled={offset === 0} className="rounded border px-3 py-1 disabled:opacity-50">Prev</button>
         <button onClick={nextPage} disabled={offset + PAGE_SIZE >= total} className="rounded border px-3 py-1 disabled:opacity-50">Next</button>

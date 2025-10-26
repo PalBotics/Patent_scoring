@@ -79,3 +79,6 @@ server_pid.txt
 # Misc local files
 *.local
 *.env.local
+ 
+# Ignore accidental extra Next.js workspace scaffold
+web/

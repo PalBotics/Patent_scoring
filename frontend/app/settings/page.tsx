@@ -52,7 +52,7 @@ export default function SettingsPage() {
         <div>
           <label className="block text-sm font-medium">API Base URL</label>
           <input
-            className="mt-1 w-full rounded border px-3 py-2 text-black"
+            className="mt-1 w-full rounded border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-800 px-3 py-2 text-black dark:text-white"
             value={baseUrl}
             onChange={(e) => setBaseUrlState(e.target.value)}
             placeholder="http://127.0.0.1:8003"
@@ -61,7 +61,7 @@ export default function SettingsPage() {
         <div>
           <label className="block text-sm font-medium">APP_API_KEY</label>
           <input
-            className="mt-1 w-full rounded border px-3 py-2 text-black"
+            className="mt-1 w-full rounded border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-800 px-3 py-2 text-black dark:text-white"
             value={token}
             onChange={(e) => setTokenState(e.target.value)}
             placeholder="patscore-..."
@@ -70,7 +70,7 @@ export default function SettingsPage() {
         <div className="text-xs text-zinc-500">{hint}</div>
         <button
           type="submit"
-          className="rounded bg-black text-white px-4 py-2 disabled:opacity-50"
+          className="rounded bg-black dark:bg-white text-white dark:text-black px-4 py-2 disabled:opacity-50"
           disabled={saving}
         >
           {saving ? "Saving..." : "Save & Test"}
@@ -80,11 +80,11 @@ export default function SettingsPage() {
       <div className="mt-8 grid gap-4">
         <div>
           <h2 className="font-medium">Health</h2>
-          <pre className="mt-1 whitespace-pre-wrap rounded bg-zinc-100 p-3 text-sm text-black">{health}</pre>
+          <pre className="mt-1 whitespace-pre-wrap rounded bg-zinc-100 dark:bg-zinc-800 p-3 text-sm text-black dark:text-white">{health}</pre>
         </div>
         <div>
           <h2 className="font-medium">Settings (requires token)</h2>
-          <pre className="mt-1 whitespace-pre-wrap rounded bg-zinc-100 p-3 text-sm text-black">{settings}</pre>
+          <pre className="mt-1 whitespace-pre-wrap rounded bg-zinc-100 dark:bg-zinc-800 p-3 text-sm text-black dark:text-white">{settings}</pre>
         </div>
         {error && (
           <div className="text-red-600">{error}</div>

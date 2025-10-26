@@ -55,3 +55,5 @@ export type ListRecordsResponse = {
   limit: number;
   records: RecordSummary[];
 };
+
+export type RecordDetail = RecordSummary; // Same structure for now

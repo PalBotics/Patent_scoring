@@ -12,6 +12,9 @@ eggs/
 .eggs/
 lib/
 lib64/
+# Allow TypeScript client libs in frontend
+!frontend/lib/
+!frontend/lib/**
 parts/
 sdist/
 var/

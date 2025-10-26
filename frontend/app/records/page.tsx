@@ -71,17 +71,22 @@ export default function RecordsPage() {
             </tr>
           </thead>
           <tbody>
-            {records.map((r) => (
+            {records.map((r) => {
+              const patentId = (r as any).patentId ?? (r as any).patent_id ?? "";
+              const updated = (r as any).updated_at ?? (r as any).updatedAt ?? "";
+              return (
               <tr key={r.id} className="border-b align-top">
-                <td className="py-2 pr-4 whitespace-nowrap">{r.patent_id}</td>
+                <td className="py-2 pr-4 whitespace-nowrap">{patentId}</td>
                 <td className="py-2 pr-4">
-                  <div className="font-medium">{r.title}</div>
-                  <div className="text-zinc-500 line-clamp-2 max-w-xl">{r.abstract}</div>
+                  <Link href={`/records/${r.id}`} className="font-medium text-blue-600 dark:text-blue-400 hover:underline">
+                    {r.title}
+                  </Link>
+                  <div className="text-zinc-500 dark:text-zinc-400 line-clamp-2 max-w-xl">{r.abstract}</div>
                 </td>
                 <td className="py-2 pr-4">{r.relevance ?? "-"}</td>
-                <td className="py-2 pr-4 whitespace-nowrap">{r.updated_at ?? ""}</td>
+                <td className="py-2 pr-4 whitespace-nowrap">{updated}</td>
               </tr>
-            ))}
+            );})}
             {!loading && records.length === 0 && (
               <tr>
                 <td className="py-4 text-zinc-500" colSpan={4}>No records found.</td>

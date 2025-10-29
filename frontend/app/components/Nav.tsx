@@ -13,6 +13,9 @@ export function Nav() {
         <nav className="flex items-center gap-4 text-sm">
           <Link href="/" className="hover:underline">Home</Link>
           <Link href="/records" className="hover:underline">Records</Link>
+          <Link href="/ingest" className="hover:underline">Ingest</Link>
+          <Link href="/queue" className="hover:underline">Queue</Link>
+          <Link href="/scores" className="hover:underline">Scores</Link>
           <Link href="/settings" className="hover:underline">Settings</Link>
           <button
             onClick={toggleTheme}

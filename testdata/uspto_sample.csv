@@ -1,0 +1,4 @@
+patent_id,title,abstract,pub_date,source
+US-1234567-A,Autonomous Demining Vehicle,This patent describes a tracked robot for detecting and neutralizing landmines using ground-penetrating radar and a robotic arm.,2020-05-01,USPTO CSV
+US-2345678-A,Sensor Fusion for Mine Detection,Combines magnetometer and metal detector signals with machine learning to improve explosive ordnance detection.,2021-02-15,USPTO CSV
+US-3456789-A,Robotic Mobility Over Rough Terrain,Articulated suspension system improving mobility of unmanned ground vehicles across uneven surfaces.,2019-11-20,USPTO CSV

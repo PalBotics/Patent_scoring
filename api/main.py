@@ -1,8 +1,14 @@
 import os
 from datetime import datetime
 from typing import List, Optional
+import tempfile
+import shutil
+import json
+import logging
+from pathlib import Path
+import urllib.parse
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Security
+from fastapi import Depends, FastAPI, Header, HTTPException, Security, UploadFile, File, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
@@ -28,6 +34,11 @@ from api import airtable_service
 import scorer
 
 load_dotenv()
+
+# Module logger
+logger = logging.getLogger(__name__)
+if not logger.handlers:
+    logging.basicConfig(level=logging.INFO)
 
 # Initialize database on startup
 init_database()
@@ -194,6 +205,42 @@ def health():
     return {"ok": True, "version": "0.1.0"}
 
 
+# Compatibility aliases for health/settings to match potential frontend expectations
+@app.get("/health")
+def health_alias_root():
+    return {"ok": True, "version": "0.1.0"}
+
+
+@app.get("/api/health")
+def health_alias_api():
+    return {"ok": True, "version": "0.1.0"}
+
+
+@app.get("/api/stats")
+def get_stats(
+    db: Session = Depends(get_db),
+    api_key: str = Depends(get_api_key),
+):
+    """Get real-time counts for queue and scores."""
+    from api.models import QueueItem, Score
+    
+    pending_count = db.query(QueueItem).filter(QueueItem.status == "pending").count()
+    scored_in_queue = db.query(QueueItem).filter(QueueItem.status == "scored").count()
+    total_queue = db.query(QueueItem).count()
+    total_scores = db.query(Score).count()
+    
+    return {
+        "queue": {
+            "pending": pending_count,
+            "scored": scored_in_queue,
+            "total": total_queue,
+        },
+        "scores": {
+            "total": total_scores,
+        }
+    }
+
+
 # --- New spec endpoints ---
 
 
@@ -206,6 +253,12 @@ async def get_settings():
         airtableTableName=AIRTABLE_TABLE_NAME,
         adminApiKeySet=bool(API_KEY),
     )
+
+
+# Alias without "/api" prefix for clients that call /settings
+@app.get("/settings", response_model=SettingsResponse)
+async def get_settings_alias():
+    return await get_settings()
 
 
 @app.get("/api/scores", response_model=ScoresListResponse)
@@ -268,9 +321,15 @@ def get_queue(
     db: Session = Depends(get_db),
     api_key: str = Depends(get_api_key),
 ):
-    from api.models import QueueItem
+    from api.models import QueueItem, Score
 
-    query = db.query(QueueItem)
+    # Join QueueItem with Score to get the relevance score if it exists
+    query = db.query(QueueItem, Score.relevance).outerjoin(
+        Score,
+        (QueueItem.patent_id == Score.patent_id) & 
+        (QueueItem.abstract_sha1 == Score.abstract_sha1)
+    )
+    
     if status:
         query = query.filter(QueueItem.status == status)
 
@@ -278,7 +337,7 @@ def get_queue(
 
     total = query.count()
     offset_val = (page - 1) * page_size
-    items_db = query.offset(offset_val).limit(page_size).all()
+    results = query.offset(offset_val).limit(page_size).all()
 
     items = [
         QueueListItem(
@@ -290,8 +349,9 @@ def get_queue(
             source=item.source,
             status=item.status,
             enqueuedAt=item.enqueued_at.isoformat() if item.enqueued_at else "",
+            score=score if score else None,
         )
-        for item in items_db
+        for item, score in results
     ]
 
     return QueueListResponse(items=items, page=page, pageSize=page_size, total=total)
@@ -319,27 +379,59 @@ def skip_queue_items(
 # --- Ingest endpoints ---
 
 @app.post("/api/ingest", response_model=IngestJobResponse)
-def start_ingest(
-    filename: Optional[str] = None,
+async def start_ingest(
+    background_tasks: BackgroundTasks,
+    file: UploadFile = File(...),
     db: Session = Depends(get_db),
     api_key: str = Depends(get_api_key),
 ):
-    """Start an ingest job (stub)."""
+    """
+    Upload and ingest USPTO file (CSV, XML, XML.GZ, or ZIP).
+    Parses file, deduplicates against scores DB, queues new patents for scoring.
+    """
     from api.models import IngestJob
-
-    job = IngestJob(filename=filename or "upload.csv", status="running")
+    from api.ingest_service import process_ingest_job
+    
+    # Validate file type
+    filename = file.filename or "upload"
+    ext = Path(filename).suffix.lower()
+    if ext not in ['.csv', '.xml', '.gz', '.zip']:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported file type: {ext}. Supported: .csv, .xml, .gz, .zip"
+        )
+    
+    # Create ingest job
+    job = IngestJob(filename=filename, status="pending")
     db.add(job)
     db.commit()
     db.refresh(job)
-
+    
+    # Save uploaded file temporarily
+    temp_dir = Path(tempfile.gettempdir()) / "patent_ingest"
+    temp_dir.mkdir(exist_ok=True)
+    temp_file = temp_dir / f"job_{job.id}_{filename}"
+    
+    try:
+        with open(temp_file, 'wb') as f:
+            shutil.copyfileobj(file.file, f)
+    except Exception as e:
+        job.status = 'failed'
+        job.log = f"File upload failed: {str(e)}"
+        db.commit()
+        raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
+    
+    # Process in background
+    background_tasks.add_task(process_ingest_job, job.id, str(temp_file))
+    
     return IngestJobResponse(
         jobId=job.id,
         filename=job.filename,
         status=job.status,
-        matchedCount=job.matched_count,
-        enqueuedCount=job.enqueued_count,
+        matchedCount=0,
+        enqueuedCount=0,
         csvUrl=None,
-        log=job.log,
+        log="Processing started",
     )
 
 
@@ -368,3 +460,217 @@ def get_ingest_job(
 
 
 
+
+
+# --- Batch Scoring endpoints ---
+
+@app.post("/api/queue/process-batch")
+async def process_scoring_batch(
+    background_tasks: BackgroundTasks,
+    batch_size: int = 10,
+    mode: str = "keyword",
+    min_relevance: str = "Medium",
+    db: Session = Depends(get_db),
+    api_key: str = Depends(get_api_key),
+):
+    """
+    Process a batch of pending patents from queue.
+    Scores them and stores Medium/High relevance results.
+    """
+    from api.scoring_service import process_queue_batch
+    
+    # Run in background
+    background_tasks.add_task(
+        process_queue_batch,
+        batch_size=batch_size,
+        mode=mode,
+        min_relevance=min_relevance
+    )
+    
+    return {
+        "ok": True,
+        "message": f"Processing batch of {batch_size} patents in background"
+    }
+
+
+@app.post("/api/queue/process-all")
+async def process_all_pending(
+    background_tasks: BackgroundTasks,
+    mode: str = "keyword",
+    min_relevance: str = "Medium",
+    batch_size: int = 10,
+    db: Session = Depends(get_db),
+    api_key: str = Depends(get_api_key),
+):
+    """
+    Process all pending patents in queue.
+    Continues until queue is empty.
+    """
+    from api.scoring_service import process_all_pending as process_all
+    
+    # Run in background
+    background_tasks.add_task(
+        process_all,
+        mode=mode,
+        min_relevance=min_relevance,
+        batch_size=batch_size
+    )
+    
+    return {
+        "ok": True,
+        "message": "Processing all pending patents in background"
+    }
+
+
+# --- Airtable Sync endpoint ---
+
+from pydantic import BaseModel
+
+class SyncRequest(BaseModel):
+    patent_ids: List[str]
+
+@app.post("/api/sync-airtable")
+def sync_to_airtable(
+    request: SyncRequest,
+    api_key: str = Depends(get_api_key),
+):
+    """
+    Sync selected scored patents to Airtable (synchronous).
+    - Only syncs High/Medium scored items from the provided patent_ids.
+    - Removes Low-scored items from the queue for those ids.
+    Returns a summary of actions.
+    """
+    from api import airtable_service
+    from api.models import Score, QueueItem
+    from api.db import SessionLocal
+
+    patent_ids = request.patent_ids or []
+    db = SessionLocal()
+    try:
+        if not patent_ids:
+            return {"ok": False, "message": "No patent_ids provided", "synced": 0, "skipped": 0, "errors": 0, "removed": 0}
+
+        # Get High/Medium scores for the selected patent_ids
+        scores = (
+            db.query(Score)
+            .filter(Score.patent_id.in_(patent_ids), Score.relevance.in_(["High", "Medium"]))
+            .all()
+        )
+
+        synced = 0
+        skipped = 0
+        errors = 0
+        details: List[dict] = []
+
+        import requests
+
+        for score in scores:
+            try:
+                # Prepare Airtable fields (using Airtable's field names)
+                subsystem = json.loads(score.subsystem_json) if getattr(score, "subsystem_json", None) else []
+                fields = {
+                    "Patent ID": score.patent_id,
+                    "Abstract": getattr(score, "abstract", "") or "",
+                    "Relevance": score.relevance,
+                    # To avoid Airtable 422 INVALID_MULTIPLE_CHOICE_OPTIONS when options are not pre-defined
+                    # in the base (and API token cannot create them), omit values and send an empty list.
+                    # If needed, we can later update this to filter against a configured allowlist.
+                    "Subsystem": [],
+                    "Publication Date": getattr(score, "pub_date", "") or "",
+                }
+                # Do NOT include Title unless the Airtable schema has that field.
+                # Current base does not include a Title field, so we omit it to avoid 422 UNKNOWN_FIELD_NAME.
+
+                # Check for existing by Patent ID using filterByFormula
+                base = airtable_service.AIRTABLE_BASE_ID
+                table = airtable_service.AIRTABLE_TABLE_NAME
+                headers = airtable_service._base_headers()
+                formula = urllib.parse.quote("{Patent ID}='" + score.patent_id.replace("'", "\\'") + "'")
+                list_url = f"https://api.airtable.com/v0/{base}/{table}?maxRecords=1&filterByFormula={formula}"
+                list_resp = requests.get(list_url, headers=headers)
+                if list_resp.ok and list_resp.json().get("records"):
+                    logger.info(f"Skipping {score.patent_id} - already in Airtable")
+                    skipped += 1
+                    details.append({
+                        "patent_id": score.patent_id,
+                        "status": "skipped",
+                        "reason": "already exists"
+                    })
+                    continue
+
+                # Create record
+                create_url = f"https://api.airtable.com/v0/{base}/{table}"
+                create_resp = requests.post(create_url, headers=headers, json={"fields": fields})
+                if create_resp.ok:
+                    logger.info(f"Synced {score.patent_id} to Airtable")
+                    synced += 1
+                    at_id = None
+                    try:
+                        at_id = create_resp.json().get("id")
+                    except Exception:
+                        pass
+                    details.append({
+                        "patent_id": score.patent_id,
+                        "status": "synced",
+                        "airtable_id": at_id
+                    })
+                else:
+                    err_text = None
+                    try:
+                        err_text = create_resp.text
+                    except Exception:
+                        err_text = None
+                    logger.error(
+                        f"Failed to sync {score.patent_id}: {create_resp.status_code} - {err_text}"
+                    )
+                    errors += 1
+                    details.append({
+                        "patent_id": score.patent_id,
+                        "status": "error",
+                        "code": create_resp.status_code,
+                        "error": (err_text[:300] if isinstance(err_text, str) else None)
+                    })
+            except Exception as e:
+                logger.error(f"Sync error for {getattr(score, 'patent_id', '?')}: {e}")
+                errors += 1
+                details.append({
+                    "patent_id": getattr(score, 'patent_id', None),
+                    "status": "error",
+                    "error": str(e)
+                })
+
+        # Remove Low-scored queue items for these patent_ids
+        low_scores = (
+            db.query(Score).filter(Score.patent_id.in_(patent_ids), Score.relevance == "Low").all()
+        )
+        removed = 0
+        for score in low_scores:
+            qi = (
+                db.query(QueueItem)
+                .filter(
+                    QueueItem.patent_id == score.patent_id,
+                    QueueItem.abstract_sha1 == score.abstract_sha1,
+                )
+                .first()
+            )
+            if qi:
+                db.delete(qi)
+                removed += 1
+        db.commit()
+
+        return {
+            "ok": True,
+            "message": f"Airtable sync complete: {synced} synced, {skipped} skipped, {errors} errors; removed {removed} Low-scored from queue",
+            "synced": synced,
+            "skipped": skipped,
+            "errors": errors,
+            "removed": removed,
+            "details": details,
+        }
+    except Exception as e:
+        logger.error(f"Airtable sync failed: {e}", exc_info=True)
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Airtable sync failed: {e}")
+    finally:
+        db.close()
+ 

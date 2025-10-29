@@ -18,7 +18,7 @@ class RecordSummary(BaseModel):
     scored_at: Optional[str] = Field(None, alias="scoredAt")
     sha1: Optional[str] = None  # Legacy field
     updated_at: Optional[str] = None  # Legacy field
-    score: Optional[int] = None  # Legacy field
+    score: Optional[str] = None  # Legacy field
     model_config = ConfigDict(populate_by_name=True)
 
 class Provenance(BaseModel):
@@ -96,6 +96,7 @@ class QueueListItem(BaseModel):
     source: Optional[str] = None
     status: str  # pending | scored | skipped
     enqueued_at: str = Field(..., alias="enqueuedAt")
+    score: Optional[str] = None
     model_config = ConfigDict(populate_by_name=True)
 
 class QueueListResponse(BaseModel):

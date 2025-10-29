@@ -25,9 +25,21 @@ export function getBaseUrl(): string {
   const env = process.env.NEXT_PUBLIC_API_BASE_URL;
   if (typeof window !== "undefined") {
     const saved = window.localStorage.getItem(BASE_URL_KEY);
-    if (saved) return saved;
+    if (saved) {
+      // Migrate legacy default port 8003 → 8010
+      if (/:8003(\b|\/?)/.test(saved)) {
+        const fixed = saved.replace(":8003", ":8010");
+        try {
+          window.localStorage.setItem(BASE_URL_KEY, fixed);
+          // eslint-disable-next-line no-console
+          console.info("Updated saved API base URL from 8003 to:", fixed);
+        } catch {}
+        return fixed;
+      }
+      return saved;
+    }
   }
-  return env || "http://127.0.0.1:8003";
+  return env || "http://127.0.0.1:8010";
 }
 
 export function setBaseUrl(url: string) {
